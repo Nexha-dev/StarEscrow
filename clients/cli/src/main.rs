@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
+use std::thread;
+use std::time::{Duration, Instant};
+use std::io::{self, Write};
 
 /// StarEscrow CLI — interact with the escrow contract on Stellar Testnet.
 ///
@@ -157,6 +160,20 @@ enum Commands {
         #[arg(long)]
         payer: String,
     },
+
+    /// Poll contract status and notify of changes
+    Watch {
+        #[arg(long, env = "ESCROW_CONTRACT_ID")]
+        contract_id: String,
+
+        /// Polling interval in seconds
+        #[arg(long, default_value = "10")]
+        interval: u64,
+
+        /// Exit after N seconds
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -267,6 +284,51 @@ fn main() -> Result<()> {
 
         Commands::List { contract_id, payer } => {
             list_escrows(&cli.rpc_url, &cli.network_passphrase, &contract_id, &payer, as_json)?;
+        }
+
+        Commands::Watch { contract_id, interval, timeout } => {
+            let start = Instant::now();
+            let mut last_status = None;
+
+            if !as_json {
+                println!("Watching escrow {} (interval: {}s)...", contract_id, interval);
+            }
+
+            loop {
+                let current_raw = query_contract(&cli.rpc_url, &cli.network_passphrase, &contract_id, "get_status")?;
+                let current_status = current_raw.trim().to_string();
+
+                if let Some(ref last) = last_status {
+                    if *last != current_status {
+                        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                        output(
+                            as_json,
+                            json!({"status": "changed", "new_status": current_status, "timestamp": timestamp}),
+                            &format!("[{}] Status changed: {}", timestamp, current_status),
+                        );
+                        last_status = Some(current_status);
+                    }
+                } else {
+                    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                    output(
+                        as_json,
+                        json!({"status": "initial", "current_status": current_status, "timestamp": timestamp}),
+                        &format!("[{}] Initial status: {}", timestamp, current_status),
+                    );
+                    last_status = Some(current_status);
+                }
+
+                if let Some(t) = timeout {
+                    if start.elapsed() >= Duration::from_secs(t) {
+                        if !as_json {
+                            println!("Timeout reached ({}s). Exiting.", t);
+                        }
+                        break;
+                    }
+                }
+
+                thread::sleep(Duration::from_secs(interval));
+            }
         }
     }
 
