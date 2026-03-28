@@ -10,7 +10,7 @@ pub use storage::{EscrowData, EscrowStatus, ProtocolConfig};
 
 use crate::errors::EscrowError;
 use crate::r#yield::YieldProtocolClient;
-use crate::storage::RateLimitConfig;
+use crate::storage::{RateLimitConfig, YieldRecipient};
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Symbol};
 
@@ -36,6 +36,7 @@ impl EscrowContract {
             fee_bps,
             fee_collector,
         });
+        storage::extend_ttl(&env);
         Ok(())
     }
 
@@ -46,6 +47,7 @@ impl EscrowContract {
         config.paused = true;
         events::contract_paused(&env, &config.admin);
         storage::save_config(&env, &config);
+        storage::extend_ttl(&env);
         Ok(())
     }
 
@@ -56,6 +58,7 @@ impl EscrowContract {
         config.paused = false;
         events::contract_unpaused(&env, &config.admin);
         storage::save_config(&env, &config);
+        storage::extend_ttl(&env);
         Ok(())
     }
 
@@ -115,6 +118,7 @@ impl EscrowContract {
 
         storage::save_escrow(&env, &data);
         events::escrow_created(&env, &payer, &freelancer, amount, &milestone);
+        storage::extend_ttl(&env);
         Ok(())
     }
 
@@ -125,6 +129,12 @@ impl EscrowContract {
         if data.status != EscrowStatus::Active {
             return Err(EscrowError::NotActive);
         }
+        data.freelancer.require_auth();
+        data.status = EscrowStatus::WorkSubmitted;
+        storage::save_escrow(&env, &data);
+        events::work_submitted(&env, &data.freelancer);
+        storage::extend_ttl(&env);
+        Ok(())
     }
 
     /// Payer approves milestone — releases funds to freelancer (minus protocol fee).
@@ -155,6 +165,7 @@ impl EscrowContract {
         let _ = fee_amount; // used above
         data.status = EscrowStatus::Completed;
         storage::save_escrow(&env, &data);
+        storage::extend_ttl(&env);
         Ok(())
     }
 
@@ -172,6 +183,7 @@ impl EscrowContract {
         events::escrow_cancelled(&env, &data.payer, data.amount);
         data.status = EscrowStatus::Cancelled;
         storage::save_escrow(&env, &data);
+        storage::extend_ttl(&env);
         Ok(())
     }
 
@@ -199,6 +211,7 @@ impl EscrowContract {
         events::escrow_expired(&env, &data.payer, data.amount);
         data.status = EscrowStatus::Expired;
         storage::save_escrow(&env, &data);
+        storage::extend_ttl(&env);
         Ok(())
     }
 
@@ -211,6 +224,7 @@ impl EscrowContract {
         data.freelancer = new_freelancer.clone();
         storage::save_escrow(&env, &data);
         events::freelancer_transferred(&env, &old, &new_freelancer);
+        storage::extend_ttl(&env);
         Ok(())
     }
 
@@ -225,6 +239,27 @@ impl EscrowContract {
     }
 
     // ── internal helpers ──────────────────────────────────────────────────────
+
+    fn withdraw_funds(env: &Env, data: &mut EscrowData, recipient: Address) -> Result<(), EscrowError> {
+        let client = token::Client::new(env, &data.token);
+        let mut total = data.amount;
+
+        if let Some(ref protocol) = data.yield_protocol {
+            let yield_client = YieldProtocolClient::new(env, protocol);
+            let (principal, yield_accrued) = yield_client.withdraw(&data.principal_deposited);
+            total = principal;
+            if yield_accrued > 0 {
+                let yield_to = match data.yield_recipient {
+                    YieldRecipient::Payer => data.payer.clone(),
+                    YieldRecipient::Freelancer => data.freelancer.clone(),
+                };
+                client.transfer(&env.current_contract_address(), &yield_to, &yield_accrued);
+            }
+        }
+
+        client.transfer(&env.current_contract_address(), &recipient, &total);
+        Ok(())
+    }
 
     fn assert_not_paused(env: &Env) -> Result<(), EscrowError> {
         if storage::has_config(env) && storage::load_config(env).paused {
