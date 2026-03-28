@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::{generate, Shell};
 use serde_json::{json, Value};
+use std::io;
 
 /// StarEscrow CLI — interact with the escrow contract on Stellar Testnet.
 ///
@@ -133,6 +135,16 @@ enum Commands {
         #[arg(long, default_value = "escrow.json")]
         output: String,
     },
+    /// Print a shell completion script to stdout.
+    ///
+    /// Usage examples:
+    ///   star-escrow completion bash >> ~/.bash_completion
+    ///   star-escrow completion zsh  > ~/.zfunc/_star-escrow
+    ///   star-escrow completion fish > ~/.config/fish/completions/star-escrow.fish
+    Completion {
+        /// Shell to generate completions for: bash, zsh, fish
+        shell: Shell,
+    },
 }
 
 fn main() -> Result<()> {
@@ -212,6 +224,10 @@ fn main() -> Result<()> {
         }
         Commands::Export { contract_id, output: out_path } => {
             run_export(&cli.rpc_url, &cli.network_passphrase, &contract_id, &out_path)?;
+        }
+        Commands::Completion { shell } => {
+            let mut cmd = Cli::command();
+            generate(shell, &mut cmd, "star-escrow", &mut io::stdout());
         }
     }
 
