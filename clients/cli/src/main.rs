@@ -452,19 +452,7 @@ fn output(as_json: bool, data: Value, human: &str) {
 }
 
 fn list_escrows(rpc_url: &str, network_passphrase: &str, contract_id: &str, payer: &str, as_json: bool) -> Result<()> {
-    let out = std::process::Command::new("stellar")
-        .args([
-            "contract", "events",
-            "--id", contract_id,
-            "--rpc-url", rpc_url,
-            "--network-passphrase", network_passphrase,
-            "--output", "json",
-        ])
-        .output()
-        .context("stellar CLI not found — install from https://developers.stellar.org/docs/tools/developer-tools/cli/install-cli")?;
-
-    let raw = String::from_utf8_lossy(&out.stdout);
-    let events: Vec<Value> = serde_json::from_str(&raw).unwrap_or_default();
+    let events = fetch_events(rpc_url, network_passphrase, contract_id)?;
 
     let escrows: Vec<Value> = events
         .into_iter()
@@ -498,6 +486,45 @@ fn list_escrows(rpc_url: &str, network_passphrase: &str, contract_id: &str, paye
         }
     }
     Ok(())
+}
+
+fn fetch_events(rpc_url: &str, network_passphrase: &str, contract_id: &str) -> Result<Vec<Value>> {
+    let out = std::process::Command::new("stellar")
+        .args([
+            "contract", "events",
+            "--id", contract_id,
+            "--rpc-url", rpc_url,
+            "--network-passphrase", network_passphrase,
+            "--output", "json",
+        ])
+        .output()
+        .context("stellar CLI not found — install from https://developers.stellar.org/docs/tools/developer-tools/cli/install-cli")?;
+
+    let raw = String::from_utf8_lossy(&out.stdout);
+    let events: Vec<Value> = serde_json::from_str(&raw).unwrap_or_default();
+    Ok(events)
+}
+
+fn fetch_remote_wasm_hash(rpc_url: &str, network_passphrase: &str, contract_id: &str) -> Result<String> {
+    let out = std::process::Command::new("stellar")
+        .args([
+            "contract", "fetch",
+            "--id", contract_id,
+            "--rpc-url", rpc_url,
+            "--network-passphrase", network_passphrase,
+            "--output", "wasm",
+        ])
+        .output()
+        .context("Failed to fetch contract WASM from network")?;
+
+    if !out.status.success() {
+        anyhow::bail!("stellar contract fetch failed: {}", String::from_utf8_lossy(&out.stderr));
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(&out.stdout);
+    let result = hasher.finalize();
+    Ok(hex::encode(result))
 }
 
 fn query_contract(rpc_url: &str, network_passphrase: &str, contract_id: &str, function: &str) -> Result<String> {
