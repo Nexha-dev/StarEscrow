@@ -33,7 +33,7 @@ Then open a Pull Request against `main`.
 
 ## Code Style
 
-Run these before pushing — CI will enforce both:
+Run these before pushing — CI enforces formatting (`cargo fmt --check --workspace`) and clippy:
 
 ```bash
 cargo fmt --all
