@@ -66,3 +66,10 @@ pub fn yield_deposited(env: &Env, protocol: &Address, amount: i128) {
         (protocol.clone(), amount),
     );
 }
+
+pub fn recurring_released(env: &Env, freelancer: &Address, amount: i128, release_num: u32) {
+    env.events().publish(
+        (Symbol::new(env, "recurring_released"),),
+        (freelancer.clone(), amount, release_num),
+    );
+}

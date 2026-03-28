@@ -36,9 +36,14 @@ pub struct EscrowData {
     pub yield_protocol: Option<Address>,
     pub principal_deposited: i128,
     pub yield_recipient: YieldRecipient,
-    pub approvers: Vec<Address>,
-    pub required_approvals: u32,
-    pub approval_count: u32,
+    /// Recurring mode: interval in seconds between releases (0 = disabled).
+    pub interval: u64,
+    /// Total number of recurring releases allowed (0 = disabled).
+    pub recurrence_count: u32,
+    /// Number of releases already made.
+    pub releases_made: u32,
+    /// Timestamp of the last release (or creation time for first interval).
+    pub last_release_time: u64,
 }
 
 #[contracttype]
