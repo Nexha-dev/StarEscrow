@@ -99,7 +99,7 @@ fn test_approve_before_submit_fails() {
 }
 
 #[test]
-fn test_cancel_after_submit_fails() {
+fn test_approve_before_submit_fails() {
     let s = Setup::new();
     s.simple_create(100, "Cancel after submit");
     s.contract.submit_work();
@@ -221,7 +221,7 @@ fn test_approve_records_completion() {
     let s = Setup::new();
     s.simple_create(100, "Reputation completion");
     s.contract.submit_work();
-    s.contract.approve();
+    s.payer_approve();
 
     let stats = s.rep.get_stats(&s.freelancer);
     assert_eq!(stats.completed, 1);

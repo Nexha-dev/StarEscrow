@@ -36,6 +36,9 @@ pub struct EscrowData {
     pub yield_protocol: Option<Address>,
     pub principal_deposited: i128,
     pub yield_recipient: YieldRecipient,
+    pub approvers: Vec<Address>,
+    pub required_approvals: u32,
+    pub approval_count: u32,
 }
 
 #[contracttype]

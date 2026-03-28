@@ -81,6 +81,8 @@ impl EscrowContract {
         deadline: Option<u64>,
         yield_protocol: Option<Address>,
         yield_recipient: YieldRecipient,
+        approvers: Vec<Address>,
+        required_approvals: u32,
     ) -> Result<(), EscrowError> {
         Self::assert_not_paused(&env)?;
         if storage::has_escrow(&env) {
@@ -89,6 +91,18 @@ impl EscrowContract {
         if amount <= 0 {
             return Err(EscrowError::InvalidAmount);
         }
+
+        // Validate threshold
+        let m = approvers.len() as u32;
+        let threshold = if approvers.is_empty() {
+            // Single-payer mode: payer is the sole approver
+            1u32
+        } else {
+            if required_approvals == 0 || required_approvals > m {
+                return Err(EscrowError::InvalidThreshold);
+            }
+            required_approvals
+        };
 
         let allowed = storage::read_allowed_tokens(&env);
         if !allowed.is_empty() && !allowed.contains(&token) {
@@ -111,6 +125,9 @@ impl EscrowContract {
             yield_protocol,
             principal_deposited: 0i128,
             yield_recipient,
+            approvers,
+            required_approvals: threshold,
+            approval_count: 0,
         };
 
         if let Some(ref protocol) = data.yield_protocol {
@@ -156,7 +173,6 @@ impl EscrowContract {
             if fee > 0 {
                 client.transfer(&env.current_contract_address(), &config.fee_collector, &fee);
             }
-            (data.amount - fee, fee)
         } else {
             (data.amount, 0)
         };
