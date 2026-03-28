@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use std::thread;
 use std::time::{Duration, Instant};
 use std::io::{self, Write};
+use chrono;
 
 /// StarEscrow CLI — interact with the escrow contract on Stellar Testnet.
 ///
@@ -174,6 +175,12 @@ enum Commands {
         #[arg(long)]
         timeout: Option<u64>,
     },
+
+    /// Fetch and display event history for the contract
+    History {
+        #[arg(long, env = "ESCROW_CONTRACT_ID")]
+        contract_id: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -330,6 +337,22 @@ fn main() -> Result<()> {
                 thread::sleep(Duration::from_secs(interval));
             }
         }
+
+        Commands::History { contract_id } => {
+            let events = fetch_events(&cli.rpc_url, &cli.network_passphrase, &contract_id)?;
+            if events.is_empty() {
+                output(as_json, json!({"events": []}), "No events found.");
+            } else if as_json {
+                println!("{}", serde_json::to_string_pretty(&json!({"events": events}))?);
+            } else {
+                println!("Event history for contract {}:", contract_id);
+                for (i, e) in events.iter().enumerate() {
+                    let event_type = e["topic"][0].as_str().unwrap_or("unknown");
+                    let timestamp = e["ledger_closed_at"].as_str().unwrap_or("unknown");
+                    println!("  [{}] {} | {} | data={}", i + 1, timestamp, event_type, e["value"]);
+                }
+            }
+        }
     }
 
     Ok(())
@@ -346,19 +369,7 @@ fn output(as_json: bool, data: Value, human: &str) {
 
 /// Query `escrow_created` events for a given payer and display results.
 fn list_escrows(rpc_url: &str, network_passphrase: &str, contract_id: &str, payer: &str, as_json: bool) -> Result<()> {
-    let out = std::process::Command::new("stellar")
-        .args([
-            "contract", "events",
-            "--id", contract_id,
-            "--rpc-url", rpc_url,
-            "--network-passphrase", network_passphrase,
-            "--output", "json",
-        ])
-        .output()
-        .context("stellar CLI not found — install from https://developers.stellar.org/docs/tools/developer-tools/cli/install-cli")?;
-
-    let raw = String::from_utf8_lossy(&out.stdout);
-    let events: Vec<Value> = serde_json::from_str(&raw).unwrap_or_default();
+    let events = fetch_events(rpc_url, network_passphrase, contract_id)?;
 
     let escrows: Vec<Value> = events
         .into_iter()
@@ -394,6 +405,23 @@ fn list_escrows(rpc_url: &str, network_passphrase: &str, contract_id: &str, paye
     }
 
     Ok(())
+}
+
+fn fetch_events(rpc_url: &str, network_passphrase: &str, contract_id: &str) -> Result<Vec<Value>> {
+    let out = std::process::Command::new("stellar")
+        .args([
+            "contract", "events",
+            "--id", contract_id,
+            "--rpc-url", rpc_url,
+            "--network-passphrase", network_passphrase,
+            "--output", "json",
+        ])
+        .output()
+        .context("stellar CLI not found — install from https://developers.stellar.org/docs/tools/developer-tools/cli/install-cli")?;
+
+    let raw = String::from_utf8_lossy(&out.stdout);
+    let events: Vec<Value> = serde_json::from_str(&raw).unwrap_or_default();
+    Ok(events)
 }
 
 fn query_contract(rpc_url: &str, network_passphrase: &str, contract_id: &str, function: &str) -> Result<String> {
