@@ -1,6 +1,9 @@
 # StarEscrow
 
-Programmable escrow protocol for freelance and marketplace payments on Stellar using Soroban smart contracts.
+[![CI](https://github.com/henry-peters/StarEscrow/actions/workflows/ci.yml/badge.svg)](https://github.com/henry-peters/StarEscrow/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+StarEscrow is a programmable escrow protocol for freelance and marketplace payments on the Stellar network, built with Soroban smart contracts. It locks funds on-chain when a job is created, optionally routes them through a yield protocol while work is in progress, and releases payment to the freelancer upon payer approval — or refunds the payer on cancellation or deadline expiry. A configurable fee (in basis points) is deducted from the released amount and forwarded to a fee collector address.
 
 ## Architecture
 
@@ -193,3 +196,48 @@ cargo test -p escrow
 ### Deploy
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full instructions.
+
+## Usage
+
+Set required environment variables:
+
+```bash
+export ESCROW_CONTRACT_ID=<contract-id>
+export ADMIN_SECRET=<admin-secret-key>
+export PAYER_SECRET=<payer-secret-key>
+export FREELANCER_SECRET=<freelancer-secret-key>
+```
+
+Initialize the protocol (admin, one-time):
+
+```bash
+star-escrow init \
+  --fee-bps 100 \
+  --fee-collector <fee-collector-address>
+```
+
+Create an escrow and lock funds:
+
+```bash
+star-escrow create \
+  --freelancer <freelancer-address> \
+  --token <token-address> \
+  --amount 1000000000 \
+  --milestone "Deliver final design assets" \
+  --deadline 1800000000
+```
+
+Freelancer submits work, payer approves:
+
+```bash
+star-escrow submit-work
+star-escrow approve
+```
+
+Cancel before work is submitted (payer only):
+
+```bash
+star-escrow cancel
+```
+
+Run `star-escrow --help` for the full command reference.
