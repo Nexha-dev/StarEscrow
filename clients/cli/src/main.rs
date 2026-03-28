@@ -145,6 +145,17 @@ enum Commands {
         /// Shell to generate completions for: bash, zsh, fish
         shell: Shell,
     },
+    /// Simulate a transaction and report the estimated fee.
+    EstimateFee {
+        #[arg(long, env = "ESCROW_CONTRACT_ID")]
+        contract_id: String,
+        /// Operation to simulate: create, submit-work, approve, cancel, expire
+        #[arg(long)]
+        operation: String,
+        /// Source account secret key (used to simulate the transaction)
+        #[arg(long)]
+        source_secret: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -228,6 +239,9 @@ fn main() -> Result<()> {
         Commands::Completion { shell } => {
             let mut cmd = Cli::command();
             generate(shell, &mut cmd, "star-escrow", &mut io::stdout());
+        }
+        Commands::EstimateFee { contract_id, operation, source_secret } => {
+            run_estimate_fee(&cli.rpc_url, &cli.network_passphrase, &contract_id, &operation, &source_secret)?;
         }
     }
 
@@ -332,6 +346,68 @@ fn run_setup_wizard() -> Result<()> {
     println!("\n.env written. Review and update FREELANCER_SECRET before use.\n");
     println!("Setup complete!");
 
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Estimate fee
+// ---------------------------------------------------------------------------
+
+fn run_estimate_fee(
+    rpc_url: &str,
+    network_passphrase: &str,
+    contract_id: &str,
+    operation: &str,
+    source_secret: &str,
+) -> Result<()> {
+    let function = match operation {
+        "create" => "create",
+        "submit-work" => "submit_work",
+        "approve" => "approve",
+        "cancel" => "cancel",
+        "expire" => "expire",
+        other => anyhow::bail!(
+            "Unknown operation '{other}'. Valid: create, submit-work, approve, cancel, expire"
+        ),
+    };
+
+    let out = std::process::Command::new("stellar")
+        .args([
+            "contract", "invoke",
+            "--id", contract_id,
+            "--rpc-url", rpc_url,
+            "--network-passphrase", network_passphrase,
+            "--source", source_secret,
+            "--sim-only",
+            "--", function,
+        ])
+        .output()
+        .context("stellar CLI not found")?;
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let combined = format!("{stdout}{stderr}");
+
+    // Parse fee from simulation JSON output; fall back to grepping for a number near "fee"
+    let fee_stroops: u64 = if let Ok(v) = serde_json::from_str::<Value>(stdout.trim()) {
+        v["fee"].as_u64()
+            .or_else(|| v["min_resource_fee"].as_u64())
+            .unwrap_or(0)
+    } else {
+        combined.lines().find_map(|l| {
+            let l = l.to_lowercase();
+            if l.contains("fee") {
+                l.split_whitespace()
+                    .find_map(|w| w.trim_matches(|c: char| !c.is_ascii_digit()).parse::<u64>().ok())
+            } else {
+                None
+            }
+        }).unwrap_or(0)
+    };
+
+    let fee_xlm = fee_stroops as f64 / 10_000_000.0;
+    println!("Estimated fee for '{operation}':");
+    println!("  {fee_stroops} stroops  ({fee_xlm:.7} XLM)");
     Ok(())
 }
 
