@@ -260,7 +260,6 @@ dependencies = [
  "clap",
  "clap_complete",
  "dialoguer",
- "hex",
  "serde_json",
  "sha2",
 ]
